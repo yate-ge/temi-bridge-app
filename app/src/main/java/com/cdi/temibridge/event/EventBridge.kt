@@ -4,8 +4,11 @@ import android.util.Log
 import com.robotemi.sdk.Robot
 import com.robotemi.sdk.TtsRequest
 import com.robotemi.sdk.listeners.*
+import com.robotemi.sdk.map.OnLoadMapStatusChangedListener
+import com.robotemi.sdk.navigation.listener.OnCurrentPositionChangedListener
 import com.robotemi.sdk.navigation.listener.OnDistanceToLocationChangedListener
 import com.robotemi.sdk.navigation.listener.OnReposeStatusChangedListener
+import com.robotemi.sdk.navigation.model.Position
 import com.cdi.temibridge.server.ConnectionManager
 import org.jetbrains.annotations.NotNull
 
@@ -26,7 +29,9 @@ class EventBridge(
     Robot.ConversationViewAttachesListener,
     OnDistanceToLocationChangedListener,
     OnReposeStatusChangedListener,
-    OnUserInteractionChangedListener {
+    OnUserInteractionChangedListener,
+    OnCurrentPositionChangedListener,
+    OnLoadMapStatusChangedListener {
 
     companion object {
         private const val TAG = "EventBridge"
@@ -48,6 +53,8 @@ class EventBridge(
         robot.addOnDistanceToLocationChangedListener(this)
         robot.addOnReposeStatusChangedListener(this)
         robot.addOnUserInteractionChangedListener(this)
+        robot.addOnCurrentPositionChangedListener(this)
+        robot.addOnLoadMapStatusChangedListener(this)
         Log.i(TAG, "All event listeners registered")
     }
 
@@ -67,6 +74,8 @@ class EventBridge(
         robot.removeOnDistanceToLocationChangedListener(this)
         robot.removeOnReposeStatusChangedListener(this)
         robot.removeOnUserInteractionChangedListener(this)
+        robot.removeOnCurrentPositionChangedListener(this)
+        robot.removeOnLoadMapStatusChangedListener(this)
         Log.i(TAG, "All event listeners unregistered")
     }
 
@@ -105,6 +114,39 @@ class EventBridge(
                 "descriptionId" to descriptionId,
                 "description" to description
             )
+        )
+    }
+
+    // Current position changed
+    override fun onCurrentPositionChanged(position: Position) {
+        connectionManager.sendNotification(
+            "event.navigation.currentPositionChanged",
+            mapOf(
+                "x" to position.x,
+                "y" to position.y,
+                "yaw" to position.yaw,
+                "tiltAngle" to position.tiltAngle
+            )
+        )
+    }
+
+    // Load map status
+    override fun onLoadMapStatusChanged(status: Int) {
+        val statusName = when (status) {
+            OnLoadMapStatusChangedListener.COMPLETE -> "complete"
+            OnLoadMapStatusChangedListener.START -> "start"
+            OnLoadMapStatusChangedListener.ERROR_UNKNOWN -> "error_unknown"
+            OnLoadMapStatusChangedListener.ERROR_ABORT_FROM_ROBOX -> "error_abort_from_robox"
+            OnLoadMapStatusChangedListener.ERROR_ABORT_ON_NOT_CHARGING -> "error_not_charging"
+            OnLoadMapStatusChangedListener.ERROR_ABORT_BUSY -> "error_busy"
+            OnLoadMapStatusChangedListener.ERROR_ABORT_ON_TIMEOUT -> "error_timeout"
+            OnLoadMapStatusChangedListener.ERROR_PB_STREAM_FILE_INVALID -> "error_file_invalid"
+            OnLoadMapStatusChangedListener.ERROR_GET_MAP_DATA -> "error_get_map_data"
+            else -> "unknown_$status"
+        }
+        connectionManager.sendNotification(
+            "event.navigation.loadMapStatusChanged",
+            mapOf("status" to status, "statusName" to statusName)
         )
     }
 

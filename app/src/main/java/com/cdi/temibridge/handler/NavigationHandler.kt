@@ -61,12 +61,58 @@ class NavigationHandler(private val robot: Robot) {
     }
 
     private fun getMapData(params: JsonElement?, id: Any?): Any? {
-        val mapData = robot.getMapData()
-        return if (mapData != null) {
-            mapOf("mapId" to mapData.mapId, "mapInfo" to mapData.mapInfo.toString())
-        } else {
-            null
+        val mapData = robot.getMapData() ?: return null
+
+        val mapInfo = mapData.mapInfo
+        val mapImage = mapData.mapImage
+
+        val locations = mapData.locations?.map { layer ->
+            mapOf(
+                "layerId" to layer.layerId,
+                "layerCategory" to layer.layerCategory,
+                "layerStatus" to layer.layerStatus,
+                "poses" to layer.layerPoses?.map { pose ->
+                    mapOf("x" to pose.x, "y" to pose.y, "theta" to pose.theta)
+                }
+            )
         }
+
+        val virtualWalls = mapData.virtualWalls?.map { layer ->
+            mapOf(
+                "layerId" to layer.layerId,
+                "poses" to layer.layerPoses?.map { pose ->
+                    mapOf("x" to pose.x, "y" to pose.y, "theta" to pose.theta)
+                }
+            )
+        }
+
+        val greenPaths = mapData.greenPaths?.map { layer ->
+            mapOf(
+                "layerId" to layer.layerId,
+                "poses" to layer.layerPoses?.map { pose ->
+                    mapOf("x" to pose.x, "y" to pose.y, "theta" to pose.theta)
+                }
+            )
+        }
+
+        return mapOf(
+            "mapId" to mapData.mapId,
+            "mapInfo" to mapOf(
+                "width" to mapInfo.width,
+                "height" to mapInfo.height,
+                "originX" to mapInfo.originX,
+                "originY" to mapInfo.originY,
+                "resolution" to mapInfo.resolution
+            ),
+            "mapImage" to if (mapImage != null) mapOf(
+                "rows" to mapImage.rows,
+                "cols" to mapImage.cols,
+                "typeId" to mapImage.typeId
+            ) else null,
+            "locations" to locations,
+            "virtualWalls" to virtualWalls,
+            "greenPaths" to greenPaths
+        )
     }
 
     private fun getMapList(params: JsonElement?, id: Any?): Any? {
