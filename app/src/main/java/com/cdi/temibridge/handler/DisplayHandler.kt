@@ -7,6 +7,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.annotation.SuppressLint
 import com.google.gson.JsonElement
 import com.cdi.temibridge.server.InvalidParamsException
 
@@ -19,19 +20,39 @@ class DisplayHandler(
         private const val TAG = "DisplayHandler"
     }
 
-    init {
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun setupWebView() {
         activity.runOnUiThread {
             webView.webViewClient = WebViewClient()
             webView.webChromeClient = WebChromeClient()
             val settings = webView.settings
+            // Core
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            // Zoom
             settings.setSupportZoom(false)
             settings.builtInZoomControls = false
+            settings.displayZoomControls = false
+            // Media
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = true
             settings.allowContentAccess = true
+            // Mixed content (allow http resources in https pages)
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            // Cache & database
+            settings.databaseEnabled = true
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            // Layout
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
+            // Allow universal access from file URLs (for local HTML loading external resources)
+            settings.allowUniversalAccessFromFileURLs = true
         }
+    }
+
+    init {
+        setupWebView()
     }
 
     fun register(registry: HandlerRegistry) {

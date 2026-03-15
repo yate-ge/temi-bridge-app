@@ -1080,6 +1080,44 @@ await ws.send(json.dumps({
 }))
 ```
 
+### WebView 兼容性
+
+temi 的 WebView 基于 Android System WebView（Chromium 内核）。以下功能经过实机测试：
+
+| 功能 | 支持情况 | 说明 |
+|------|---------|------|
+| HTML5 | ✅ | 完整支持 |
+| CSS3 Flexbox | ✅ | 布局正常 |
+| CSS Grid | ✅ | grid-template-columns 等正常 |
+| CSS Gradients | ✅ | linear-gradient 渲染正确 |
+| CSS Animation (@keyframes) | ✅ | 动画流畅 |
+| CSS border-radius / box-shadow | ✅ | 圆角和阴影正常 |
+| JavaScript (ES6+) | ✅ | const/let/箭头函数/模板字符串等 |
+| DOM 操作 | ✅ | getElementById, querySelector 等 |
+| setInterval / setTimeout | ✅ | 定时器正常 |
+| requestAnimationFrame | ✅ | 动画帧回调正常 |
+| SVG | ✅ | circle/path/text 渲染正确 |
+| Canvas 2D | ✅ | 绘图和动画正常 |
+| Date API / Intl | ✅ | 日期和国际化正常 |
+| 外部 URL (HTTPS) | ✅ | 可加载外部网页 |
+| Mixed Content (HTTP in HTTPS) | ✅ | 已开启允许 |
+| localStorage / sessionStorage | ✅ | DOM Storage 已启用 |
+| 音频/视频自动播放 | ✅ | 已禁用用户手势要求 |
+| Unicode Emoji | ⚠️ | 部分 emoji 不显示，建议用 SVG 替代 |
+| WebGL | ❓ | 未测试，取决于硬件 |
+| WebRTC | ❓ | 未测试 |
+
+**WebView 设置：**
+- JavaScript 已启用
+- DOM Storage 已启用
+- 缩放已禁用（固定全屏）
+- Mixed Content 允许（HTTP 资源可在 HTTPS 页面加载）
+- 文件访问和跨域访问已启用
+- 媒体自动播放已启用（无需用户手势）
+- 宽视口模式（useWideViewPort + loadWithOverviewMode）
+
+**建议：** 使用 SVG 绘制表情而非 Unicode Emoji，兼容性更好且可精确控制大小和动画。
+
 ---
 
 ## 媒体流 (media)
