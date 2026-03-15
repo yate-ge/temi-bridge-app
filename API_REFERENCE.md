@@ -407,6 +407,10 @@ ws.on('message', (data) => {
 
 ### 获取地图数据
 
+获取当前地图的完整数据，包括地图尺寸、位置点坐标、虚拟墙、路径等。
+
+> **注意：** 需要 MAP 权限（在 temi center 后台批准）。
+
 ```json
 {
     "jsonrpc": "2.0",
@@ -414,6 +418,44 @@ ws.on('message', (data) => {
     "id": 16
 }
 ```
+
+**响应示例：**
+```json
+{
+    "mapId": "map_001",
+    "mapInfo": {
+        "width": 1024,
+        "height": 1024,
+        "originX": -12.5,
+        "originY": -12.5,
+        "resolution": 0.05
+    },
+    "mapImage": {
+        "rows": 1024,
+        "cols": 1024,
+        "typeId": "CV_8UC1"
+    },
+    "locations": [
+        {
+            "layerId": "客厅",
+            "layerCategory": 0,
+            "layerStatus": 0,
+            "poses": [{"x": 1.5, "y": 3.2, "theta": 0.0}]
+        }
+    ],
+    "virtualWalls": [],
+    "greenPaths": []
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `mapInfo.width/height` | 地图栅格尺寸（像素） |
+| `mapInfo.originX/originY` | 地图原点在真实世界的坐标（米） |
+| `mapInfo.resolution` | 每像素对应的真实距离（米/像素） |
+| `locations[].poses[].x/y/theta` | 各保存位置在地图上的坐标和朝向 |
+| `virtualWalls` | 虚拟墙的端点坐标 |
+| `greenPaths` | 绿色路径的路径点坐标 |
 
 ### 获取地图列表
 
@@ -1302,8 +1344,12 @@ asyncio.run(full_duplex())
 | `event.follow.beWithMeStatusChanged` | 跟随状态变化 | `{status}` — start/stop/... |
 | `event.follow.constraintBeWithStatusChanged` | 约束跟随状态变化 | `{isConstraint}` |
 | `event.follow.detectionStateChanged` | 人体检测状态变化 | `{state}` — 2=检测到人 |
+| `event.navigation.currentPositionChanged` | 机器人位置变化（实时） | `{x, y, yaw, tiltAngle}` |
+| `event.navigation.loadMapStatusChanged` | 地图加载状态 | `{status, statusName}` — statusName: start/complete/error_* |
+| `event.movement.velocityChanged` | 移动速度变化（导航时） | `{velocity}` — 负值=前进 |
 | `event.system.robotReady` | 机器人就绪状态 | `{isReady}` |
 | `event.system.userInteraction` | 用户交互（触摸屏幕等） | `{isInteracting}` |
+| `event.system.robotLifted` | 机器人被抬起 | `{isLifted, reason}` |
 
 ### Python 监听事件示例
 

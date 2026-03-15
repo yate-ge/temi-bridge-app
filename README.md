@@ -268,7 +268,10 @@ Events are pushed as JSON-RPC notifications (no `id` field):
 | `event.navigation.distanceToLocationChanged` | Distance updates to saved locations |
 | `event.navigation.locationsUpdated` | Saved location list changed |
 | `event.navigation.reposeStatusChanged` | Repose status |
+| `event.navigation.currentPositionChanged` | Real-time position (x, y, yaw, tiltAngle) |
+| `event.navigation.loadMapStatusChanged` | Map loading status (complete/start/error) |
 | `event.movement.statusChanged` | Movement (turn/tilt) completion |
+| `event.movement.velocityChanged` | Real-time velocity during navigation |
 | `event.speech.ttsStatusChanged` | TTS started/completed |
 | `event.speech.asrResult` | Speech recognition result |
 | `event.speech.wakeupWord` | Wakeup word detected |
@@ -279,6 +282,7 @@ Events are pushed as JSON-RPC notifications (no `id` field):
 | `event.follow.detectionStateChanged` | Human detection state |
 | `event.system.robotReady` | Robot ready state |
 | `event.system.userInteraction` | User interaction detected |
+| `event.system.robotLifted` | Robot physically lifted (isLifted, reason) |
 
 ## Error Codes
 
