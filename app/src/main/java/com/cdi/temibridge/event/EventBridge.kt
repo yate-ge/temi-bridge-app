@@ -31,7 +31,9 @@ class EventBridge(
     OnReposeStatusChangedListener,
     OnUserInteractionChangedListener,
     OnCurrentPositionChangedListener,
-    OnLoadMapStatusChangedListener {
+    OnLoadMapStatusChangedListener,
+    OnMovementVelocityChangedListener,
+    OnRobotLiftedListener {
 
     companion object {
         private const val TAG = "EventBridge"
@@ -55,6 +57,8 @@ class EventBridge(
         robot.addOnUserInteractionChangedListener(this)
         robot.addOnCurrentPositionChangedListener(this)
         robot.addOnLoadMapStatusChangedListener(this)
+        robot.addOnMovementVelocityChangedListener(this)
+        robot.addOnRobotLiftedListener(this)
         Log.i(TAG, "All event listeners registered")
     }
 
@@ -76,6 +80,8 @@ class EventBridge(
         robot.removeOnUserInteractionChangedListener(this)
         robot.removeOnCurrentPositionChangedListener(this)
         robot.removeOnLoadMapStatusChangedListener(this)
+        robot.removeOnMovementVelocityChangedListener(this)
+        robot.removeOnRobotLiftedListener(this)
         Log.i(TAG, "All event listeners unregistered")
     }
 
@@ -241,6 +247,22 @@ class EventBridge(
         connectionManager.sendNotification(
             "event.system.userInteraction",
             mapOf("isInteracting" to isInteracting)
+        )
+    }
+
+    // Movement velocity
+    override fun onMovementVelocityChanged(velocity: Float) {
+        connectionManager.sendNotification(
+            "event.movement.velocityChanged",
+            mapOf("velocity" to velocity)
+        )
+    }
+
+    // Robot lifted
+    override fun onRobotLifted(isLifted: Boolean, reason: String) {
+        connectionManager.sendNotification(
+            "event.system.robotLifted",
+            mapOf("isLifted" to isLifted, "reason" to reason)
         )
     }
 }
