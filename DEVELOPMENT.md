@@ -32,7 +32,9 @@ app/src/main/java/com/cdi/temibridge/
 │
 ├── media/
 │   ├── MediaFrameHeader.kt           # 4-byte binary frame header encode/decode
-│   └── VideoPipeline.kt              # CameraX → MediaCodec H.264 → binary WebSocket frames
+│   ├── VideoPipeline.kt              # CameraX → MediaCodec H.264 → binary WebSocket frames
+│   ├── AudioCapturePipeline.kt       # AudioRecord 16kHz mono → PCM binary WebSocket frames
+│   └── AudioPlaybackPipeline.kt      # Binary WebSocket PCM frames → AudioTrack speaker playback
 │
 └── service/
     └── BridgeForegroundService.kt     # Keeps bridge alive when app is in background
@@ -78,17 +80,45 @@ CameraX ImageAnalysis (YUV_420_888 frames @ ~20fps)
       → Binary WebSocket frame to ALL connected clients
 ```
 
-**Stream lifecycle:**
+**Video stream lifecycle:**
 1. Client sends `media.startVideoStream` → binds CameraX, starts MediaCodec encoder
 2. Binary frames pushed to all clients continuously
 3. Client sends `media.stopVideoStream` → unbinds camera, releases encoder
-4. Camera auto-releases when no clients are subscribed
 
 **H.264 stream structure:**
 - Frame 0: SPS + PPS (codec config, marked as keyframe)
 - Frame 1: IDR keyframe
 - Frames 2-N: P-frames
 - Keyframes every ~2 seconds (configurable via `I_FRAME_INTERVAL`)
+
+### Audio Streaming
+
+```
+Mic Capture (temi → client):
+  AudioRecord (16kHz mono 16-bit PCM, 20ms frames)
+    → AudioCapturePipeline.captureLoop()
+      → MediaFrameHeader (type=0x02, flags, seq) + 640-byte PCM payload
+      → ConnectionManager.sendToAll(binary)
+        → Binary WebSocket frame to ALL clients
+
+Speaker Playback (client → temi):
+  Client sends binary WebSocket frame (type=0x03 + PCM payload)
+    → BridgeWebSocketServer.onBinaryMessage()
+      → AudioPlaybackPipeline.feedFrame()
+        → LinkedBlockingQueue (jitter buffer, max 100 frames / ~2s)
+        → AudioTrack.write() on dedicated playback thread
+```
+
+**Audio capture lifecycle:**
+1. Client sends `media.startAudioCapture` → creates AudioRecord, starts capture thread
+2. 20ms PCM frames (640 bytes each) pushed to all clients at ~50 fps
+3. Client sends `media.stopAudioCapture` → stops and releases AudioRecord
+
+**Audio playback lifecycle:**
+1. Client sends `media.startAudioPlayback` → creates AudioTrack, starts playback thread
+2. Client sends binary frames with type=0x03, payload=PCM data
+3. Frames queued and played through speaker (oldest dropped if queue full)
+4. Client sends `media.stopAudioPlayback` → stops and releases AudioTrack
 
 ## Key Design Decisions
 
@@ -124,6 +154,15 @@ Each handler class registers its methods with the `HandlerRegistry` in its `regi
 - **MediaCodec hardware encoder** provides efficient H.264 encoding
 - YUV420 → NV12 conversion handles Android's various YUV buffer layouts
 - The encoder output drain runs on a dedicated thread to avoid blocking camera callbacks
+
+### Audio pipeline design
+
+- **AudioRecord** captures at 16kHz mono 16-bit PCM — standard for speech processing
+- **20ms frames** (640 bytes) match VoIP conventions, giving ~50 frames/sec
+- Capture runs on a dedicated thread with `THREAD_PRIORITY_AUDIO`
+- **AudioTrack** playback uses a `LinkedBlockingQueue` as a jitter buffer (max 100 frames ≈ 2s)
+- When the queue fills up, oldest frames are dropped to prevent unbounded latency
+- Raw PCM is used instead of Opus — simpler, no native dependencies, bandwidth is fine on LAN
 
 ## Adding a New Method
 
@@ -212,7 +251,7 @@ Binary WebSocket frames use a 4-byte header + payload:
 | 2-3 | Sequence number (uint16 big-endian, wraps at 65535) |
 | 4+ | Payload (H.264 NAL units or Opus frame) |
 
-**Video stream details:**
+**Video stream (type=0x01):**
 - Codec: H.264 Baseline via MediaCodec (hardware)
 - Resolution: 640x480
 - Frame rate: ~20 fps (target 15, actual depends on device)
@@ -220,6 +259,17 @@ Binary WebSocket frames use a 4-byte header + payload:
 - Keyframe interval: 2 seconds
 - Color format: YUV420 (NV12 input to encoder)
 - NAL structure: SPS/PPS sent as first frame (keyframe flag), then IDR, then P-frames
+
+**Audio capture stream (type=0x02, temi mic → client):**
+- Format: PCM 16-bit signed little-endian
+- Sample rate: 16000 Hz, mono
+- Frame duration: 20ms (640 bytes per frame)
+- ~50 frames/sec
+
+**Audio playback stream (type=0x03, client → temi speaker):**
+- Same format as capture: PCM 16-bit 16kHz mono
+- Client sends binary frames with header type=0x03 + PCM payload
+- Jitter buffer: up to 100 frames (~2s), oldest dropped when full
 
 ## Method Reference
 
@@ -333,10 +383,10 @@ Permission values: `settings`, `face_recognition`, `map`, `sequence`
 |--------|--------|---------|
 | `media.startVideoStream` | none | `{status, format, resolution, fps}` |
 | `media.stopVideoStream` | none | `{status}` |
-| `media.startAudioCapture` | none | *not yet implemented* |
-| `media.stopAudioCapture` | none | *not yet implemented* |
-| `media.startAudioPlayback` | none | *not yet implemented* |
-| `media.stopAudioPlayback` | none | *not yet implemented* |
+| `media.startAudioCapture` | none | `{status, format, sampleRate, channels, bitsPerSample, frameDurationMs, frameSizeBytes}` |
+| `media.stopAudioCapture` | none | `{status}` |
+| `media.startAudioPlayback` | none | `{status, format, sampleRate, channels, bitsPerSample, streamType}` |
+| `media.stopAudioPlayback` | none | `{status}` |
 
 ### bridge
 
@@ -381,5 +431,5 @@ adb logcat -s TemiBridgeApp:* BridgeWebSocketServer:* JsonRpcDispatcher:* EventB
 - [x] Phase 1: Foundation & build upgrade (AGP 8.x, Kotlin, JSON-RPC 2.0 framework)
 - [x] Phase 2: Complete SDK coverage (66 methods, 15 event types)
 - [x] Phase 3: Video streaming (CameraX → H.264 MediaCodec → binary WebSocket, ~20fps 640x480)
-- [ ] Phase 4: Audio streaming (AudioRecord → Opus → binary WebSocket)
+- [x] Phase 4: Audio streaming (AudioRecord → PCM 16kHz → binary WebSocket, bidirectional)
 - [ ] Phase 5: Hardening (rate limiting, backpressure for slow clients, reconnection)

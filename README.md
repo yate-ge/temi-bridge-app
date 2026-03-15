@@ -135,6 +135,65 @@ ws.onmessage = (event) => {
 </script>
 ```
 
+## Example: Audio Capture (Python)
+
+```python
+import asyncio, websockets, json, wave
+
+async def record_mic():
+    async with websockets.connect("ws://TEMI_IP:8175") as ws:
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.startAudioCapture", "id": 1
+        }))
+
+        frames = []
+        for _ in range(150):  # ~3 seconds (50 frames/sec)
+            msg = await ws.recv()
+            if isinstance(msg, bytes) and len(msg) >= 4 and msg[0] == 0x02:
+                frames.append(msg[4:])
+
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.stopAudioCapture", "id": 2
+        }))
+
+        with wave.open("temi_mic.wav", "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            for f in frames:
+                wf.writeframes(f)
+
+asyncio.run(record_mic())
+```
+
+## Example: Audio Playback (Python)
+
+```python
+import asyncio, websockets, json, struct, wave
+
+async def play_audio():
+    async with websockets.connect("ws://TEMI_IP:8175") as ws:
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.startAudioPlayback", "id": 1
+        }))
+        await ws.recv()  # response
+
+        with wave.open("audio.wav", "rb") as wf:
+            while True:
+                data = wf.readframes(320)  # 320 samples = 640 bytes = 20ms
+                if not data:
+                    break
+                header = struct.pack('>BBH', 0x03, 0x00, 0)
+                await ws.send(header + data)
+                await asyncio.sleep(0.02)
+
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.stopAudioPlayback", "id": 2
+        }))
+
+asyncio.run(play_audio())
+```
+
 ## Available Methods (66 total)
 
 | Domain | Methods |
@@ -153,9 +212,20 @@ ws.onmessage = (event) => {
 
 Use `bridge.getCapabilities` to get the full list of methods and events at runtime.
 
-## Video Streaming
+## Media Streaming
 
-The bridge streams **H.264 video** from temi's camera via binary WebSocket frames.
+The bridge supports real-time video and audio streaming via binary WebSocket frames on the same connection.
+
+**Binary frame format (4-byte header + payload):**
+
+| Byte | Content |
+|------|---------|
+| 0 | Stream type: `0x01`=H.264 video, `0x02`=PCM audio out (mic), `0x03`=PCM audio in (speaker) |
+| 1 | Flags (bit0 = keyframe, bit1 = end-of-stream) |
+| 2-3 | Sequence number (uint16 big-endian) |
+| 4+ | Payload data |
+
+### Video Streaming
 
 | Parameter | Value |
 |-----------|-------|
@@ -164,18 +234,25 @@ The bridge streams **H.264 video** from temi's camera via binary WebSocket frame
 | Frame rate | ~20 fps |
 | Bitrate | ~1 Mbps |
 | Keyframe interval | 2 seconds |
-| Transport | Binary WebSocket frames with 4-byte header |
+| Stream type | `0x01` |
 
-**Binary frame format:**
+The first frame is always SPS/PPS (codec config), followed by an IDR keyframe, then P-frames.
 
-| Byte | Content |
-|------|---------|
-| 0 | Stream type (`0x01` = H.264 video) |
-| 1 | Flags (bit0 = keyframe, bit1 = end-of-stream) |
-| 2-3 | Sequence number (uint16 big-endian) |
-| 4+ | H.264 NAL units |
+### Audio Streaming
 
-The first frame is always SPS/PPS (codec config), followed by an IDR keyframe, then P-frames. Clients should buffer from the first keyframe.
+| Parameter | Value |
+|-----------|-------|
+| Format | PCM 16-bit signed little-endian |
+| Sample rate | 16000 Hz |
+| Channels | 1 (mono) |
+| Frame duration | 20 ms |
+| Frame size | 640 bytes |
+| Mic capture stream type | `0x02` (temi → client) |
+| Speaker playback stream type | `0x03` (client → temi) |
+
+**Audio capture:** call `media.startAudioCapture`, then receive binary frames (type `0x02`) containing raw PCM data from temi's microphone.
+
+**Audio playback:** call `media.startAudioPlayback`, then send binary frames (type `0x03`) with PCM data to play through temi's speaker.
 
 ## Events
 

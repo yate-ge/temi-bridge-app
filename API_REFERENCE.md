@@ -18,7 +18,7 @@
 - [Kiosk 模式 (kiosk)](#kiosk-模式-kiosk)
 - [权限管理 (permission)](#权限管理-permission)
 - [人脸识别 (face)](#人脸识别-face)
-- [摄像头视频流 (media)](#摄像头视频流-media)
+- [媒体流 (media)](#媒体流-media)
 - [桥接信息 (bridge)](#桥接信息-bridge)
 - [事件监听](#事件监听)
 - [错误处理](#错误处理)
@@ -906,7 +906,7 @@ ws.on('message', (data) => {
 
 ---
 
-## 摄像头视频流 (media)
+## 媒体流 (media)
 
 ### 开启视频流
 
@@ -1043,6 +1043,198 @@ asyncio.run(receive_video())
     </script>
 </body>
 </html>
+```
+
+### 开启麦克风采集
+
+开启后，机器人麦克风录到的声音会以 PCM 格式通过二进制 WebSocket 帧持续推送给客户端。
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "media.startAudioCapture",
+    "id": 102
+}
+```
+
+**响应：**
+```json
+{
+    "status": "started",
+    "format": "PCM",
+    "sampleRate": 16000,
+    "channels": 1,
+    "bitsPerSample": 16,
+    "frameDurationMs": 20,
+    "frameSizeBytes": 640
+}
+```
+
+**音频帧格式：**
+
+```
+[字节0]  流类型 = 0x02 (麦克风音频)
+[字节1]  标志位 (一般为0)
+[字节2-3] 序列号 (uint16 大端序)
+[字节4+] PCM 数据 (16-bit 有符号小端序, 640字节 = 20ms)
+```
+
+### 停止麦克风采集
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "media.stopAudioCapture",
+    "id": 103
+}
+```
+
+### 开启扬声器播放
+
+开启后，客户端可以发送二进制 PCM 音频帧，机器人扬声器会播放出来。
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "media.startAudioPlayback",
+    "id": 104
+}
+```
+
+**响应：**
+```json
+{
+    "status": "started",
+    "format": "PCM",
+    "sampleRate": 16000,
+    "channels": 1,
+    "bitsPerSample": 16,
+    "streamType": "0x03"
+}
+```
+
+开启后，向 WebSocket 发送二进制消息即可播放：
+
+```
+[字节0]  流类型 = 0x03 (扬声器播放)
+[字节1]  标志位 (一般为0)
+[字节2-3] 序列号 (uint16 大端序, 可填0)
+[字节4+] PCM 数据 (16-bit 有符号小端序, 16kHz 单声道)
+```
+
+**建议：** 每帧发送 640 字节（20ms），每 20ms 发送一帧以保持流畅播放。
+
+### 停止扬声器播放
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "media.stopAudioPlayback",
+    "id": 105
+}
+```
+
+### Python 录制麦克风示例
+
+```python
+import asyncio, websockets, json, wave
+
+async def record_mic():
+    async with websockets.connect("ws://192.168.123.100:8175") as ws:
+        # 开启麦克风
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.startAudioCapture", "id": 1
+        }))
+
+        # 录制3秒（每秒约50帧）
+        frames = []
+        for _ in range(150):
+            msg = await ws.recv()
+            if isinstance(msg, bytes) and len(msg) >= 4 and msg[0] == 0x02:
+                frames.append(msg[4:])  # 跳过4字节头
+
+        # 停止
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.stopAudioCapture", "id": 2
+        }))
+
+        # 保存为 WAV 文件
+        with wave.open("temi_mic.wav", "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # 16-bit
+            wf.setframerate(16000)
+            for f in frames:
+                wf.writeframes(f)
+        print(f"已保存 {len(frames)} 帧到 temi_mic.wav")
+
+asyncio.run(record_mic())
+```
+
+### Python 播放音频到扬声器示例
+
+```python
+import asyncio, websockets, json, struct, wave
+
+async def play_to_speaker():
+    async with websockets.connect("ws://192.168.123.100:8175") as ws:
+        # 开启扬声器播放
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.startAudioPlayback", "id": 1
+        }))
+        await ws.recv()  # 等待响应
+
+        # 读取 WAV 文件并发送
+        with wave.open("audio.wav", "rb") as wf:
+            while True:
+                data = wf.readframes(320)  # 320个采样 = 640字节 = 20ms
+                if not data:
+                    break
+                # 构造二进制帧: 4字节头 + PCM数据
+                header = struct.pack('>BBH', 0x03, 0x00, 0)
+                await ws.send(header + data)
+                await asyncio.sleep(0.02)  # 每20ms发一帧
+
+        # 停止播放
+        await asyncio.sleep(0.5)
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.stopAudioPlayback", "id": 2
+        }))
+
+asyncio.run(play_to_speaker())
+```
+
+### Python 全双工音频示例（同时听和说）
+
+```python
+import asyncio, websockets, json, struct
+
+async def full_duplex():
+    async with websockets.connect("ws://192.168.123.100:8175") as ws:
+        # 同时开启麦克风和扬声器
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.startAudioCapture", "id": 1
+        }))
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.startAudioPlayback", "id": 2
+        }))
+
+        # 回声测试：把麦克风采集到的音频原样播放回扬声器
+        for _ in range(500):  # 约10秒
+            msg = await ws.recv()
+            if isinstance(msg, bytes) and len(msg) >= 4 and msg[0] == 0x02:
+                # 收到麦克风音频(0x02)，改为扬声器类型(0x03)后发回
+                playback_header = struct.pack('>BBH', 0x03, 0x00, 0)
+                await ws.send(playback_header + msg[4:])
+
+        # 停止
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.stopAudioCapture", "id": 3
+        }))
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "method": "media.stopAudioPlayback", "id": 4
+        }))
+
+asyncio.run(full_duplex())
 ```
 
 ---
@@ -1320,5 +1512,9 @@ asyncio.run(monitor())
 | 设音量 | `system.setVolume` | `volume` |
 | 开视频流 | `media.startVideoStream` | — |
 | 关视频流 | `media.stopVideoStream` | — |
+| 开麦克风 | `media.startAudioCapture` | — |
+| 关麦克风 | `media.stopAudioCapture` | — |
+| 开扬声器播放 | `media.startAudioPlayback` | — |
+| 关扬声器播放 | `media.stopAudioPlayback` | — |
 | 测试连接 | `bridge.ping` | — |
 | 查能力列表 | `bridge.getCapabilities` | — |

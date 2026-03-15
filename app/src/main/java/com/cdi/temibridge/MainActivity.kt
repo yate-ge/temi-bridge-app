@@ -14,6 +14,9 @@ import com.robotemi.sdk.Robot
 import com.robotemi.sdk.listeners.OnRobotReadyListener
 import com.cdi.temibridge.event.EventBridge
 import com.cdi.temibridge.handler.*
+import com.cdi.temibridge.media.AudioCapturePipeline
+import com.cdi.temibridge.media.AudioPlaybackPipeline
+import com.cdi.temibridge.media.StreamType
 import com.cdi.temibridge.media.VideoPipeline
 import com.cdi.temibridge.server.BridgeWebSocketServer
 import com.cdi.temibridge.server.ConnectionManager
@@ -27,7 +30,7 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
     companion object {
         private const val TAG = "MainActivity"
         private const val WS_PORT = 8175
-        private const val CAMERA_PERMISSION_CODE = 100
+        private const val PERMISSIONS_REQUEST_CODE = 100
     }
 
     private lateinit var robot: Robot
@@ -37,6 +40,8 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
     private var server: BridgeWebSocketServer? = null
     private lateinit var eventBridge: EventBridge
     private var videoPipeline: VideoPipeline? = null
+    private var audioCapturePipeline: AudioCapturePipeline? = null
+    private var audioPlaybackPipeline: AudioPlaybackPipeline? = null
     private lateinit var mediaControlHandler: MediaControlHandler
 
     private lateinit var statusText: TextView
@@ -72,8 +77,8 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         // Create event bridge
         eventBridge = EventBridge(robot, connectionManager)
 
-        // Request camera permission and init video pipeline
-        requestCameraPermission()
+        // Request permissions and init media pipelines
+        requestMediaPermissions()
 
         Log.i(TAG, "TemiBridge initialized with ${handlerRegistry.getMethods().size} methods")
     }
@@ -83,14 +88,22 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         robot.addOnRobotReadyListener(this)
         eventBridge.registerAll()
 
-        // Create and start WebSocket server (recreate each time to avoid port binding issues)
         if (server == null) {
-            server = BridgeWebSocketServer(WS_PORT, dispatcher, connectionManager)
+            server = BridgeWebSocketServer(WS_PORT, dispatcher, connectionManager).also { srv ->
+                // Route incoming binary audio frames to playback pipeline
+                srv.onBinaryMessage = { _, buffer ->
+                    if (buffer.remaining() >= 4) {
+                        val streamType = buffer.get(buffer.position())
+                        if (streamType == StreamType.AUDIO_OPUS_IN) {
+                            audioPlaybackPipeline?.feedFrame(buffer)
+                        }
+                    }
+                }
+            }
             server?.start()
         }
         updateStatus()
 
-        // Start foreground service
         val serviceIntent = Intent(this, BridgeForegroundService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
@@ -109,6 +122,8 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
     override fun onDestroy() {
         super.onDestroy()
         videoPipeline?.stop()
+        audioCapturePipeline?.stop()
+        audioPlaybackPipeline?.stop()
         eventBridge.unregisterAll()
         try {
             server?.stop(1000)
@@ -133,17 +148,19 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         }
     }
 
-    private fun requestCameraPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.CAMERA),
-                CAMERA_PERMISSION_CODE
-            )
+    private fun requestMediaPermissions() {
+        val needed = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.CAMERA)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.RECORD_AUDIO)
+        }
+
+        if (needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), PERMISSIONS_REQUEST_CODE)
         } else {
-            initVideoPipeline()
+            initMediaPipelines()
         }
     }
 
@@ -151,29 +168,49 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == CAMERA_PERMISSION_CODE) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                initVideoPipeline()
-            } else {
-                Log.w(TAG, "Camera permission denied — video streaming unavailable")
-            }
+        if (requestCode == PERMISSIONS_REQUEST_CODE) {
+            initMediaPipelines()
         }
     }
 
-    private fun initVideoPipeline() {
-        videoPipeline = VideoPipeline(this, this) { frame ->
-            connectionManager.sendToAll(frame)
+    private fun initMediaPipelines() {
+        // Video pipeline (requires CAMERA)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            videoPipeline = VideoPipeline(this, this) { frame ->
+                connectionManager.sendToAll(frame)
+            }
+            mediaControlHandler.videoPipeline = videoPipeline
+            Log.i(TAG, "Video pipeline initialized")
+        } else {
+            Log.w(TAG, "Camera permission denied — video streaming unavailable")
         }
-        mediaControlHandler.videoPipeline = videoPipeline
-        Log.i(TAG, "Video pipeline initialized")
+
+        // Audio capture pipeline (requires RECORD_AUDIO)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            audioCapturePipeline = AudioCapturePipeline { frame ->
+                connectionManager.sendToAll(frame)
+            }
+            mediaControlHandler.audioCapturePipeline = audioCapturePipeline
+            Log.i(TAG, "Audio capture pipeline initialized")
+        } else {
+            Log.w(TAG, "Audio permission denied — audio capture unavailable")
+        }
+
+        // Audio playback pipeline (no special permission needed)
+        audioPlaybackPipeline = AudioPlaybackPipeline()
+        mediaControlHandler.audioPlaybackPipeline = audioPlaybackPipeline
+        Log.i(TAG, "Audio playback pipeline initialized")
+
+        updateStatus()
     }
 
     private fun updateStatus() {
         val ip = getLocalIpAddress() ?: "unknown"
         val methods = handlerRegistry.getMethods().size
-        val videoStatus = if (videoPipeline != null) "ready" else "no permission"
+        val video = if (videoPipeline != null) "ready" else "no permission"
+        val audio = if (audioCapturePipeline != null) "ready" else "no permission"
         runOnUiThread {
-            statusText.text = "Temi Bridge\nws://$ip:$WS_PORT\n${methods} methods registered\nJSON-RPC 2.0\nVideo: $videoStatus"
+            statusText.text = "Temi Bridge\nws://$ip:$WS_PORT\n${methods} methods registered\nVideo: $video | Audio: $audio"
         }
     }
 
