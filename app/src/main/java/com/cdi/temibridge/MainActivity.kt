@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import android.webkit.WebView
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
     private lateinit var serverDesc: TextView
     private lateinit var brainUrlInput: EditText
     private lateinit var btnStart: Button
+    private lateinit var webView: WebView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,6 +85,7 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         serverDesc = findViewById(R.id.serverDesc)
         brainUrlInput = findViewById(R.id.brainUrlInput)
         btnStart = findViewById(R.id.btnStart)
+        webView = findViewById(R.id.webView)
 
         // Restore saved config
         val savedMode = prefs.getString(PREF_MODE, "server")
@@ -125,6 +128,8 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
 
         mediaControlHandler = MediaControlHandler()
         mediaControlHandler.register(handlerRegistry)
+
+        DisplayHandler(this, webView, statusText).register(handlerRegistry)
 
         BridgeHandler(handlerRegistry).register(handlerRegistry)
 

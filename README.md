@@ -194,7 +194,7 @@ async def play_audio():
 asyncio.run(play_audio())
 ```
 
-## Available Methods (66 total)
+## Available Methods (71 total)
 
 | Domain | Methods |
 |--------|---------|
@@ -206,6 +206,7 @@ asyncio.run(play_audio())
 | `system` | getBattery, getSerialNumber, getVolume, setVolume, getGoToSpeed, setGoToSpeed, getNavigationSafety, setNavigationSafety, showTopBar, hideTopBar, toggleNavigationBillboard, toggleWakeup, isWakeupDisabled, setHardButtonsDisabled, isHardButtonsDisabled, setPrivacyMode, getPrivacyMode, restart, showAppList, setAutoReturn, isAutoReturnOn |
 | `kiosk` | requestToBeKioskApp, isSelectedKioskApp, setKioskMode, isKioskModeOn |
 | `permission` | checkSelfPermission, requestPermissions |
+| `display` | loadUrl, loadHtml, clear, getCurrentUrl, executeJavaScript |
 | `face` | startRecognition, stopRecognition |
 | `media` | startVideoStream, stopVideoStream, startAudioCapture, stopAudioCapture, startAudioPlayback, stopAudioPlayback |
 | `bridge` | getCapabilities, getVersion, ping |

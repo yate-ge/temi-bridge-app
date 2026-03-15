@@ -25,6 +25,7 @@ app/src/main/java/com/cdi/temibridge/
 │   ├── PermissionHandler.kt          # permission.* methods
 │   ├── FaceHandler.kt                # face.* methods
 │   ├── MediaControlHandler.kt        # media.* methods (start/stop video/audio)
+│   ├── DisplayHandler.kt             # display.* methods (loadUrl, loadHtml, executeJS)
 │   └── BridgeHandler.kt              # bridge.* methods (capabilities, version, ping)
 │
 ├── event/
@@ -388,6 +389,16 @@ Permission values: `settings`, `face_recognition`, `map`, `sequence`
 | `media.startAudioPlayback` | none | `{status, format, sampleRate, channels, bitsPerSample, streamType}` |
 | `media.stopAudioPlayback` | none | `{status}` |
 
+### display
+
+| Method | Params | Returns |
+|--------|--------|---------|
+| `display.loadUrl` | `{url: string}` | `{status, url}` |
+| `display.loadHtml` | `{html: string, baseUrl?: string}` | `{status, contentLength}` |
+| `display.clear` | none | `{status}` |
+| `display.getCurrentUrl` | none | `{url, visible}` |
+| `display.executeJavaScript` | `{script: string}` | `{status}` |
+
 ### bridge
 
 | Method | Params | Returns |
@@ -429,7 +440,7 @@ adb logcat -s TemiBridgeApp:* BridgeWebSocketServer:* JsonRpcDispatcher:* EventB
 ## Roadmap
 
 - [x] Phase 1: Foundation & build upgrade (AGP 8.x, Kotlin, JSON-RPC 2.0 framework)
-- [x] Phase 2: Complete SDK coverage (66 methods, 19 event types)
+- [x] Phase 2: Complete SDK coverage (71 methods, 19 event types)
 - [x] Phase 3: Video streaming (CameraX → H.264 MediaCodec → binary WebSocket, ~20fps 640x480)
 - [x] Phase 4: Audio streaming (AudioRecord → PCM 16kHz → binary WebSocket, bidirectional)
 - [ ] Phase 5: Hardening (rate limiting, backpressure for slow clients, reconnection)

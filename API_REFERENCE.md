@@ -18,6 +18,7 @@
 - [Kiosk 模式 (kiosk)](#kiosk-模式-kiosk)
 - [权限管理 (permission)](#权限管理-permission)
 - [人脸识别 (face)](#人脸识别-face)
+- [屏幕显示 (display)](#屏幕显示-display)
 - [媒体流 (media)](#媒体流-media)
 - [桥接信息 (bridge)](#桥接信息-bridge)
 - [事件监听](#事件监听)
@@ -948,6 +949,139 @@ ws.on('message', (data) => {
 
 ---
 
+## 屏幕显示 (display)
+
+控制 temi 屏幕上显示的内容。可以加载网页 URL、直接渲染 HTML，或执行 JavaScript。适合用于显示表情、信息面板、用户交互界面等。
+
+### 加载网页
+
+在 temi 屏幕上全屏显示一个网页。
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "display.loadUrl",
+    "params": {
+        "url": "https://example.com"
+    },
+    "id": 110
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `url` | string | 是 | 要加载的网页地址 |
+
+**响应：** `{"status": "accepted", "url": "https://example.com"}`
+
+### 加载 HTML 内容
+
+直接在 temi 屏幕上渲染 HTML 代码。适合显示自定义表情、提示信息等。
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "display.loadHtml",
+    "params": {
+        "html": "<html><body style='background:#1a1a2e;display:flex;justify-content:center;align-items:center;height:100vh'><h1 style='color:white;font-size:60px'>你好！</h1></body></html>"
+    },
+    "id": 111
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `html` | string | 是 | HTML 内容 |
+| `baseUrl` | string | 否 | 基础 URL，用于解析相对路径（默认 about:blank） |
+
+**响应：** `{"status": "accepted", "contentLength": 150}`
+
+### 清除屏幕
+
+关闭网页显示，恢复到状态界面。
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "display.clear",
+    "id": 112
+}
+```
+
+### 获取当前 URL
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "display.getCurrentUrl",
+    "id": 113
+}
+```
+
+**响应：** `{"url": "https://example.com", "visible": true}`
+
+### 执行 JavaScript
+
+在当前加载的网页中执行 JavaScript 代码。可以动态修改页面内容。
+
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "display.executeJavaScript",
+    "params": {
+        "script": "document.body.style.background = 'red'"
+    },
+    "id": 114
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `script` | string | 是 | 要执行的 JavaScript 代码 |
+
+### 使用场景示例
+
+**显示表情：**
+```python
+await ws.send(json.dumps({
+    "jsonrpc": "2.0",
+    "method": "display.loadHtml",
+    "params": {"html": "<html><body style='margin:0;display:flex;justify-content:center;align-items:center;height:100vh;background:#000'><div style='font-size:300px'>😊</div></body></html>"},
+    "id": 1
+}))
+```
+
+**显示信息面板：**
+```python
+await ws.send(json.dumps({
+    "jsonrpc": "2.0",
+    "method": "display.loadHtml",
+    "params": {"html": "<html><body style='margin:0;padding:40px;background:#1a1a2e;color:white;font-family:sans-serif'><h1>欢迎光临</h1><p style='font-size:24px'>请在屏幕上选择您要去的地方：</p><ul style='font-size:20px'><li>客厅</li><li>餐厅</li><li>书房</li></ul></body></html>"},
+    "id": 1
+}))
+```
+
+**动态更新内容：**
+```python
+# 先加载基础 HTML
+await ws.send(json.dumps({
+    "jsonrpc": "2.0",
+    "method": "display.loadHtml",
+    "params": {"html": "<html><body style='background:#000;color:white;display:flex;justify-content:center;align-items:center;height:100vh'><h1 id='msg'>等待中...</h1></body></html>"},
+    "id": 1
+}))
+
+# 然后用 JS 动态更新
+await ws.send(json.dumps({
+    "jsonrpc": "2.0",
+    "method": "display.executeJavaScript",
+    "params": {"script": "document.getElementById('msg').innerText = '客人已到达！'"},
+    "id": 2
+}))
+```
+
+---
+
 ## 媒体流 (media)
 
 ### 开启视频流
@@ -1556,6 +1690,10 @@ asyncio.run(monitor())
 | 人体检测 | `follow.setDetectionMode` | `on` |
 | 查电量 | `system.getBattery` | — |
 | 设音量 | `system.setVolume` | `volume` |
+| 显示网页 | `display.loadUrl` | `url` |
+| 显示 HTML | `display.loadHtml` | `html` |
+| 清除屏幕 | `display.clear` | — |
+| 执行 JS | `display.executeJavaScript` | `script` |
 | 开视频流 | `media.startVideoStream` | — |
 | 关视频流 | `media.stopVideoStream` | — |
 | 开麦克风 | `media.startAudioCapture` | — |
