@@ -121,20 +121,36 @@
         </LinearLayout>
 
         <!-- Status panel (shown after start) -->
-        <TextView
-            android:id="@+id/statusText"
+        <LinearLayout
+            android:id="@+id/statusPanel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text=""
-            android:textColor="#e0e0e0"
-            android:textSize="22sp"
-            android:textAlignment="center"
-            android:lineSpacingExtra="8dp"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
             android:visibility="gone"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            app:layout_constraintTop_toTopOf="parent">
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="#e0e0e0"
+                android:textSize="22sp"
+                android:textAlignment="center"
+                android:lineSpacingExtra="8dp" />
+
+            <Button
+                android:id="@+id/btnStop"
+                android:layout_width="200dp"
+                android:layout_height="48dp"
+                android:text="返回配置"
+                android:textSize="16sp"
+                android:layout_marginTop="32dp" />
+        </LinearLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

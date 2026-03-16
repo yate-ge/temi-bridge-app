@@ -68,6 +68,8 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
     private lateinit var brainUrlInput: EditText
     private lateinit var btnStart: Button
     private lateinit var webView: WebView
+    private lateinit var statusPanel: LinearLayout
+    private lateinit var btnStop: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,6 +88,8 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         brainUrlInput = findViewById(R.id.brainUrlInput)
         btnStart = findViewById(R.id.btnStart)
         webView = findViewById(R.id.webView)
+        statusPanel = findViewById(R.id.statusPanel)
+        btnStop = findViewById(R.id.btnStop)
 
         // Restore saved config
         val savedMode = prefs.getString(PREF_MODE, "server")
@@ -111,6 +115,9 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         // Start button
         btnStart.setOnClickListener { onStartClicked() }
 
+        // Stop button — return to config
+        btnStop.setOnClickListener { onStopClicked() }
+
         // Init robot and handlers (but don't start bridge yet)
         robot = Robot.getInstance()
         connectionManager = ConnectionManager()
@@ -129,7 +136,7 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         mediaControlHandler = MediaControlHandler()
         mediaControlHandler.register(handlerRegistry)
 
-        DisplayHandler(this, webView, statusText).register(handlerRegistry)
+        DisplayHandler(this, webView, statusPanel).register(handlerRegistry)
 
         BridgeHandler(handlerRegistry).register(handlerRegistry)
 
@@ -152,12 +159,12 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
             if (isClient && url.isNotEmpty()) {
                 prefs.edit().putString(PREF_MODE, "client").putString(PREF_BRAIN_URL, url).apply()
                 configPanel.visibility = View.GONE
-                statusText.visibility = View.VISIBLE
+                statusPanel.visibility = View.VISIBLE
                 startBridge(true, url)
             } else if (!isClient) {
                 prefs.edit().putString(PREF_MODE, "server").apply()
                 configPanel.visibility = View.GONE
-                statusText.visibility = View.VISIBLE
+                statusPanel.visibility = View.VISIBLE
                 startBridge(false, "")
             }
         }
@@ -180,9 +187,34 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
 
         // Switch to status view
         configPanel.visibility = View.GONE
-        statusText.visibility = View.VISIBLE
+        statusPanel.visibility = View.VISIBLE
 
         startBridge(isClientMode, brainUrl)
+    }
+
+    private fun onStopClicked() {
+        // Stop bridge
+        videoPipeline?.stop()
+        audioCapturePipeline?.stop()
+        audioPlaybackPipeline?.stop()
+        eventBridge.unregisterAll()
+        robot.removeOnRobotReadyListener(this)
+        try {
+            server?.stop(1000)
+            server = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping server", e)
+        }
+        client?.stop()
+        client = null
+        bridgeStarted = false
+
+        // Switch back to config view
+        statusPanel.visibility = View.GONE
+        webView.visibility = View.GONE
+        configPanel.visibility = View.VISIBLE
+
+        Log.i(TAG, "Bridge stopped, returning to config")
     }
 
     private fun startBridge(isClientMode: Boolean, brainUrl: String) {
