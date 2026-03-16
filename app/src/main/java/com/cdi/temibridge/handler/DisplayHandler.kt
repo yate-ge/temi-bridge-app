@@ -14,7 +14,7 @@ import com.cdi.temibridge.server.InvalidParamsException
 class DisplayHandler(
     private val activity: Activity,
     private val webView: WebView,
-    private val statusText: View
+    private val statusPanel: View
 ) {
     companion object {
         private const val TAG = "DisplayHandler"
@@ -67,7 +67,7 @@ class DisplayHandler(
         val obj = params?.asJsonObject ?: throw InvalidParamsException("params required")
         val url = obj.get("url")?.asString ?: throw InvalidParamsException("url required")
         activity.runOnUiThread {
-            statusText.visibility = View.GONE
+            statusPanel.visibility = View.GONE
             webView.visibility = View.VISIBLE
             webView.loadUrl(url)
         }
@@ -80,7 +80,7 @@ class DisplayHandler(
         val html = obj.get("html")?.asString ?: throw InvalidParamsException("html required")
         val baseUrl = obj.get("baseUrl")?.asString ?: "about:blank"
         activity.runOnUiThread {
-            statusText.visibility = View.GONE
+            statusPanel.visibility = View.GONE
             webView.visibility = View.VISIBLE
             webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
         }
@@ -92,7 +92,7 @@ class DisplayHandler(
         activity.runOnUiThread {
             webView.loadUrl("about:blank")
             webView.visibility = View.GONE
-            statusText.visibility = View.VISIBLE
+            statusPanel.visibility = View.VISIBLE
         }
         Log.i(TAG, "Display cleared")
         return mapOf("status" to "cleared")

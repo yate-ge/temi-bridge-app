@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.View
 import android.webkit.WebView
 import android.widget.*
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -22,8 +23,6 @@ import com.cdi.temibridge.media.AudioCapturePipeline
 import com.cdi.temibridge.media.AudioPlaybackPipeline
 import com.cdi.temibridge.media.StreamType
 import com.cdi.temibridge.media.VideoPipeline
-import com.cdi.temibridge.server.BridgeWebSocketClient
-import com.cdi.temibridge.server.BridgeWebSocketServer
 import com.cdi.temibridge.server.ConnectionManager
 import com.cdi.temibridge.server.JsonRpcDispatcher
 import com.cdi.temibridge.service.BridgeForegroundService
@@ -37,8 +36,8 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         private const val WS_PORT = 8175
         private const val PERMISSIONS_REQUEST_CODE = 100
         private const val PREFS_NAME = "temi_bridge_prefs"
-        private const val PREF_MODE = "mode"           // "server" or "client"
         private const val PREF_BRAIN_URL = "brain_url"
+        private const val PREF_AUTO_CONNECT = "auto_connect"
     }
 
     private lateinit var robot: Robot
@@ -49,27 +48,18 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
     private lateinit var mediaControlHandler: MediaControlHandler
     private lateinit var prefs: SharedPreferences
 
-    private var server: BridgeWebSocketServer? = null
-    private var client: BridgeWebSocketClient? = null
+    private var bridgeManager: BridgeManager? = null
     private var videoPipeline: VideoPipeline? = null
     private var audioCapturePipeline: AudioCapturePipeline? = null
     private var audioPlaybackPipeline: AudioPlaybackPipeline? = null
 
-    private var bridgeStarted = false
-
     // UI elements
-    private lateinit var configPanel: LinearLayout
     private lateinit var statusText: TextView
-    private lateinit var modeGroup: RadioGroup
-    private lateinit var radioServer: RadioButton
-    private lateinit var radioClient: RadioButton
-    private lateinit var clientConfig: LinearLayout
-    private lateinit var serverDesc: TextView
-    private lateinit var brainUrlInput: EditText
-    private lateinit var btnStart: Button
     private lateinit var webView: WebView
     private lateinit var statusPanel: LinearLayout
-    private lateinit var btnStop: Button
+    private lateinit var btnConfig: Button
+
+    private var configDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,47 +68,14 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
         // Bind UI
-        configPanel = findViewById(R.id.configPanel)
         statusText = findViewById(R.id.statusText)
-        modeGroup = findViewById(R.id.modeGroup)
-        radioServer = findViewById(R.id.radioServer)
-        radioClient = findViewById(R.id.radioClient)
-        clientConfig = findViewById(R.id.clientConfig)
-        serverDesc = findViewById(R.id.serverDesc)
-        brainUrlInput = findViewById(R.id.brainUrlInput)
-        btnStart = findViewById(R.id.btnStart)
         webView = findViewById(R.id.webView)
         statusPanel = findViewById(R.id.statusPanel)
-        btnStop = findViewById(R.id.btnStop)
+        btnConfig = findViewById(R.id.btnConfig)
 
-        // Restore saved config
-        val savedMode = prefs.getString(PREF_MODE, "server")
-        val savedUrl = prefs.getString(PREF_BRAIN_URL, "") ?: ""
-        if (savedMode == "client") {
-            radioClient.isChecked = true
-            clientConfig.visibility = View.VISIBLE
-            serverDesc.visibility = View.GONE
-        }
-        brainUrlInput.setText(savedUrl)
+        btnConfig.setOnClickListener { showConfigDialog() }
 
-        // Mode toggle
-        modeGroup.setOnCheckedChangeListener { _, checkedId ->
-            if (checkedId == R.id.radioClient) {
-                clientConfig.visibility = View.VISIBLE
-                serverDesc.visibility = View.GONE
-            } else {
-                clientConfig.visibility = View.GONE
-                serverDesc.visibility = View.VISIBLE
-            }
-        }
-
-        // Start button
-        btnStart.setOnClickListener { onStartClicked() }
-
-        // Stop button — return to config
-        btnStop.setOnClickListener { onStopClicked() }
-
-        // Init robot and handlers (but don't start bridge yet)
+        // Init robot and handlers
         robot = Robot.getInstance()
         connectionManager = ConnectionManager()
         handlerRegistry = HandlerRegistry()
@@ -137,7 +94,6 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         mediaControlHandler.register(handlerRegistry)
 
         DisplayHandler(this, webView, statusPanel).register(handlerRegistry)
-
         BridgeHandler(handlerRegistry).register(handlerRegistry)
 
         dispatcher = JsonRpcDispatcher(handlerRegistry)
@@ -148,107 +104,48 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
 
         Log.i(TAG, "TemiBridge initialized with ${handlerRegistry.getMethods().size} methods")
 
-        // Support auto-start via intent extras:
-        //   adb shell am start -n com.cdi.temibridge/.MainActivity --es mode client --es brain_url ws://IP:PORT
-        //   adb shell am start -n com.cdi.temibridge/.MainActivity --es mode server
-        val intentMode = intent.getStringExtra("mode")
-        val intentBrainUrl = intent.getStringExtra("brain_url")
-        if (intentMode != null) {
-            val isClient = intentMode == "client"
-            val url = intentBrainUrl ?: savedUrl
-            if (isClient && url.isNotEmpty()) {
-                prefs.edit().putString(PREF_MODE, "client").putString(PREF_BRAIN_URL, url).apply()
-                configPanel.visibility = View.GONE
-                statusPanel.visibility = View.VISIBLE
-                startBridge(true, url)
-            } else if (!isClient) {
-                prefs.edit().putString(PREF_MODE, "server").apply()
-                configPanel.visibility = View.GONE
-                statusPanel.visibility = View.VISIBLE
-                startBridge(false, "")
-            }
-        }
+        // Start bridge (server always starts)
+        startBridge()
     }
 
-    private fun onStartClicked() {
-        val isClientMode = radioClient.isChecked
-        val brainUrl = brainUrlInput.text.toString().trim()
-
-        if (isClientMode && brainUrl.isEmpty()) {
-            brainUrlInput.error = "请输入 Brain 地址"
-            return
-        }
-
-        // Save config
-        prefs.edit()
-            .putString(PREF_MODE, if (isClientMode) "client" else "server")
-            .putString(PREF_BRAIN_URL, brainUrl)
-            .apply()
-
-        // Switch to status view
-        configPanel.visibility = View.GONE
-        statusPanel.visibility = View.VISIBLE
-
-        startBridge(isClientMode, brainUrl)
-    }
-
-    private fun onStopClicked() {
-        // Stop bridge
-        videoPipeline?.stop()
-        audioCapturePipeline?.stop()
-        audioPlaybackPipeline?.stop()
-        eventBridge.unregisterAll()
-        robot.removeOnRobotReadyListener(this)
-        try {
-            server?.stop(1000)
-            server = null
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping server", e)
-        }
-        client?.stop()
-        client = null
-        bridgeStarted = false
-
-        // Switch back to config view
-        statusPanel.visibility = View.GONE
-        webView.visibility = View.GONE
-        configPanel.visibility = View.VISIBLE
-
-        Log.i(TAG, "Bridge stopped, returning to config")
-    }
-
-    private fun startBridge(isClientMode: Boolean, brainUrl: String) {
-        if (bridgeStarted) return
-        bridgeStarted = true
-
+    private fun startBridge() {
         robot.addOnRobotReadyListener(this)
         eventBridge.registerAll()
 
-        if (isClientMode) {
-            // Client mode: connect to external brain
-            client = BridgeWebSocketClient(brainUrl, dispatcher, connectionManager).also { c ->
-                c.onBinaryFromBrain = { buffer ->
-                    audioPlaybackPipeline?.feedFrame(buffer)
-                }
-                c.onConnected = { runOnUiThread { updateStatus(isClientMode, brainUrl) } }
-                c.onDisconnected = { runOnUiThread { updateStatus(isClientMode, brainUrl) } }
+        // Determine auto-connect URL
+        val intentBrainUrl = intent.getStringExtra("brain_url")
+        val savedUrl = prefs.getString(PREF_BRAIN_URL, "") ?: ""
+        val autoConnect = prefs.getBoolean(PREF_AUTO_CONNECT, false)
+
+        val autoConnectUrl = when {
+            !intentBrainUrl.isNullOrEmpty() -> {
+                // Intent-provided URL always auto-connects and saves preference
+                prefs.edit()
+                    .putString(PREF_BRAIN_URL, intentBrainUrl)
+                    .putBoolean(PREF_AUTO_CONNECT, true)
+                    .apply()
+                intentBrainUrl
             }
-            client?.start()
-            Log.i(TAG, "Client mode: connecting to $brainUrl")
-        } else {
-            // Server mode: listen for connections
-            server = BridgeWebSocketServer(WS_PORT, dispatcher, connectionManager).also { srv ->
-                srv.onBinaryMessage = { _, buffer ->
-                    if (buffer.remaining() >= 4) {
-                        val streamType = buffer.get(buffer.position())
-                        if (streamType == StreamType.AUDIO_OPUS_IN) {
-                            audioPlaybackPipeline?.feedFrame(buffer)
-                        }
+            autoConnect && savedUrl.isNotEmpty() -> savedUrl
+            else -> null
+        }
+
+        bridgeManager = BridgeManager(
+            port = WS_PORT,
+            dispatcher = dispatcher,
+            connectionManager = connectionManager,
+            onBinaryMessage = { buffer ->
+                if (buffer.remaining() >= 4) {
+                    val streamType = buffer.get(buffer.position())
+                    if (streamType == StreamType.AUDIO_OPUS_IN) {
+                        audioPlaybackPipeline?.feedFrame(buffer)
                     }
                 }
-            }
-            server?.start()
-            Log.i(TAG, "Server mode: listening on port $WS_PORT")
+            },
+            autoConnectUrl = autoConnectUrl
+        ).also { mgr ->
+            mgr.onClientConnected = { runOnUiThread { updateStatus() } }
+            mgr.onClientDisconnected = { runOnUiThread { updateStatus() } }
         }
 
         // Start foreground service
@@ -259,7 +156,63 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
             startService(serviceIntent)
         }
 
-        updateStatus(isClientMode, brainUrl)
+        updateStatus()
+    }
+
+    private fun showConfigDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_bridge_config, null)
+        val serverStatus = dialogView.findViewById<TextView>(R.id.dialogServerStatus)
+        val brainUrlInput = dialogView.findViewById<EditText>(R.id.dialogBrainUrl)
+        val btnConnect = dialogView.findViewById<Button>(R.id.dialogBtnConnect)
+        val btnDisconnect = dialogView.findViewById<Button>(R.id.dialogBtnDisconnect)
+        val clientStatus = dialogView.findViewById<TextView>(R.id.dialogClientStatus)
+        val autoConnectCheck = dialogView.findViewById<CheckBox>(R.id.dialogAutoConnect)
+
+        // Populate current state
+        val ip = getLocalIpAddress() ?: "unknown"
+        val clientCount = connectionManager.getClientCount()
+        serverStatus.text = "ws://$ip:$WS_PORT  |  $clientCount client(s)"
+
+        val savedUrl = prefs.getString(PREF_BRAIN_URL, "") ?: ""
+        brainUrlInput.setText(savedUrl)
+        autoConnectCheck.isChecked = prefs.getBoolean(PREF_AUTO_CONNECT, false)
+
+        fun updateClientStatus() {
+            val connected = bridgeManager?.isClientConnected() == true
+            clientStatus.text = if (connected) "Connected" else "Not connected"
+            btnConnect.isEnabled = !connected
+            btnDisconnect.isEnabled = connected
+        }
+        updateClientStatus()
+
+        btnConnect.setOnClickListener {
+            val url = brainUrlInput.text.toString().trim()
+            if (url.isEmpty()) {
+                brainUrlInput.error = "Enter brain URL"
+                return@setOnClickListener
+            }
+            prefs.edit().putString(PREF_BRAIN_URL, url).apply()
+            bridgeManager?.startClient(url)
+            // Delay status update to allow connection
+            brainUrlInput.postDelayed({ updateClientStatus(); updateStatus() }, 500)
+        }
+
+        btnDisconnect.setOnClickListener {
+            bridgeManager?.stopClient()
+            updateClientStatus()
+            updateStatus()
+        }
+
+        autoConnectCheck.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PREF_AUTO_CONNECT, isChecked).apply()
+        }
+
+        configDialog = AlertDialog.Builder(this)
+            .setTitle("Temi Bridge Config")
+            .setView(dialogView)
+            .setPositiveButton("Close", null)
+            .create()
+        configDialog?.show()
     }
 
     override fun onDestroy() {
@@ -269,14 +222,9 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
         audioPlaybackPipeline?.stop()
         eventBridge.unregisterAll()
         robot.removeOnRobotReadyListener(this)
-        try {
-            server?.stop(1000)
-            server = null
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping server", e)
-        }
-        client?.stop()
-        client = null
+        bridgeManager?.destroy()
+        bridgeManager = null
+        configDialog?.dismiss()
         stopService(Intent(this, BridgeForegroundService::class.java))
         Log.i(TAG, "Bridge stopped")
     }
@@ -343,22 +291,25 @@ class MainActivity : AppCompatActivity(), OnRobotReadyListener {
 
     // --- Status ---
 
-    private fun updateStatus(isClientMode: Boolean, brainUrl: String) {
+    private fun updateStatus() {
         val methods = handlerRegistry.getMethods().size
         val video = if (videoPipeline != null) "ready" else "no perm"
         val audio = if (audioCapturePipeline != null) "ready" else "no perm"
 
-        val modeInfo = if (isClientMode) {
-            val connected = client?.isConnected() == true
-            val state = if (connected) "connected" else "reconnecting..."
-            "Client Mode → $brainUrl\nStatus: $state"
+        val ip = getLocalIpAddress() ?: "unknown"
+        val serverInfo = "Server: ws://$ip:$WS_PORT"
+
+        val clientInfo = if (bridgeManager?.isClientConnected() == true) {
+            val url = prefs.getString(PREF_BRAIN_URL, "") ?: ""
+            "Brain: connected → $url"
+        } else if (bridgeManager?.client != null) {
+            "Brain: reconnecting..."
         } else {
-            val ip = getLocalIpAddress() ?: "unknown"
-            "Server Mode\nws://$ip:$WS_PORT"
+            "Brain: not connected"
         }
 
         runOnUiThread {
-            statusText.text = "Temi Bridge\n\n$modeInfo\n\n${methods} methods\nVideo: $video | Audio: $audio"
+            statusText.text = "Temi Bridge\n\n$serverInfo\n$clientInfo\n\n${methods} methods\nVideo: $video | Audio: $audio"
         }
     }
 

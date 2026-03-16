@@ -5,12 +5,14 @@
 ```
 app/src/main/java/com/cdi/temibridge/
 ├── TemiBridgeApplication.kt          # Application entry point
-├── MainActivity.kt                    # UI, initializes all components, camera permission
+├── MainActivity.kt                    # UI, config dialog, permissions
+├── BridgeManager.kt                   # Server + Client lifecycle (always-on server, optional client)
 │
 ├── server/
 │   ├── JsonRpcModels.kt              # Request/Response/Error/Notification data classes
 │   ├── JsonRpcDispatcher.kt          # Parses JSON-RPC messages, routes to handlers
 │   ├── BridgeWebSocketServer.kt      # WebSocket server (port 8175), text + binary frames
+│   ├── BridgeWebSocketClient.kt      # WebSocket client with auto-reconnect to external brain
 │   └── ConnectionManager.kt          # Tracks connected clients, broadcasts events/media
 │
 ├── handler/
@@ -43,11 +45,30 @@ app/src/main/java/com/cdi/temibridge/
 
 ## Data Flow
 
+### Dual-Mode Connection
+
+```
+BridgeManager (created on app start)
+  ├── BridgeWebSocketServer (always running, port 8175)
+  │     ├── Local clients connect for debugging / operator control
+  │     └── onMessage → JsonRpcDispatcher (on WS read thread)
+  │
+  └── BridgeWebSocketClient (optional, user-initiated or auto-connect)
+        ├── Connects to remote brain (ws://brain:port)
+        ├── onMessage → JsonRpcDispatcher (on dedicated dispatch thread)
+        │   └── Keeps WS read thread free for ping/pong
+        └── Auto-reconnect with exponential backoff (1s → 30s max)
+
+Both modes share the same ConnectionManager:
+  → Events broadcast to ALL connections (local + remote)
+  → JSON-RPC responses sent only to the requesting connection
+```
+
 ### JSON-RPC Request/Response
 
 ```
 Client (text WebSocket message)
-  → BridgeWebSocketServer.onMessage()
+  → BridgeWebSocketServer.onMessage() / BridgeWebSocketClient.onMessage()
     → JsonRpcDispatcher.dispatch()
       → Validates JSON-RPC 2.0 format
       → HandlerRegistry.handle(method, params, id)
@@ -122,6 +143,15 @@ Speaker Playback (client → temi):
 4. Client sends `media.stopAudioPlayback` → stops and releases AudioTrack
 
 ## Key Design Decisions
+
+### BridgeManager and dual-mode design
+
+`BridgeManager` owns the lifecycle of both server and client:
+- **Server** starts immediately on construction and cannot be stopped (always-on for local debugging)
+- **Client** is optional — started via `startClient(url)` or auto-connect preference
+- Both share the same `ConnectionManager`, so events broadcast to all connections
+- Client RPC dispatch runs on a dedicated thread (`dispatchExecutor`) to prevent WebSocket read thread from being blocked by temi SDK calls, which would cause ping/pong timeout disconnections
+- Client disables its own keepalive (`connectionLostTimeout = 0`) to avoid conflicting with the brain server's ping mechanism
 
 ### Per-client responses vs broadcast
 
@@ -431,11 +461,12 @@ adb logcat -s TemiBridgeApp:* BridgeWebSocketServer:* JsonRpcDispatcher:* EventB
 | Library | Version | Purpose |
 |---------|---------|---------|
 | temi SDK | 0.10.77 | Robot control API |
-| Java-WebSocket | 1.5.6 | WebSocket server |
+| Java-WebSocket | 1.5.6 | WebSocket server + client |
 | Gson | 2.10.1 | JSON serialization |
 | Kotlin Coroutines | 1.7.3 | Async operations |
 | CameraX | 1.2.3 | Camera capture (camera-core, camera-camera2, camera-lifecycle) |
 | AndroidX AppCompat | 1.6.1 | UI compatibility |
+| Mockito + mockito-kotlin | 5.5.0 / 5.1.0 | Unit test mocking (testImplementation) |
 
 ## Roadmap
 
@@ -443,4 +474,5 @@ adb logcat -s TemiBridgeApp:* BridgeWebSocketServer:* JsonRpcDispatcher:* EventB
 - [x] Phase 2: Complete SDK coverage (71 methods, 19 event types)
 - [x] Phase 3: Video streaming (CameraX → H.264 MediaCodec → binary WebSocket, ~20fps 640x480)
 - [x] Phase 4: Audio streaming (AudioRecord → PCM 16kHz → binary WebSocket, bidirectional)
-- [ ] Phase 5: Hardening (rate limiting, backpressure for slow clients, reconnection)
+- [x] Phase 5: Dual-mode (always-on server + optional client with BridgeManager, config dialog UI)
+- [ ] Phase 6: Hardening (rate limiting, backpressure for slow clients)

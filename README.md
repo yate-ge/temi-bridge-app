@@ -15,7 +15,17 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ### 2. Connect
 
-Connect via WebSocket to `ws://<TEMI_IP>:8175`. The app displays the WebSocket address on screen after launch.
+The WebSocket server starts automatically on launch at `ws://<TEMI_IP>:8175`.
+
+**Server mode (default):** External clients connect to the robot directly — ideal for local debugging.
+
+**Dual mode (server + brain):** Optionally connect the robot to a remote brain. Use the floating config button (bottom-left) or launch via adb:
+
+```bash
+adb shell am start -n com.cdi.temibridge/.MainActivity --es brain_url ws://BRAIN_IP:PORT
+```
+
+Both modes run simultaneously — the server is always on, and the brain client can be connected/disconnected at any time via the config dialog. Enable "Auto-connect" to reconnect on app restart.
 
 ### 3. Send Commands
 
