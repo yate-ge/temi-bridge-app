@@ -176,6 +176,16 @@ ws.on('message', (data) => {
 
 ## 语音控制 (speech)
 
+> **语音接管模式：** Temi Bridge 默认接管 temi 的语音系统。当用户对机器人说话时：
+> 1. temi 的 ASR（语音识别）捕获文字
+> 2. Bridge 通过 `event.speech.asrResult` 将识别结果转发给外部大脑
+> 3. Bridge 立即调用 `finishConversation()` 阻止 temi 自行处理
+> 4. 外部大脑收到文字后决定如何回应（调用 `speech.speak` 回复，或执行其他动作）
+>
+> 同理，NLU 结果也会被拦截转发，temi 不会自行执行语音命令。
+>
+> 这意味着外部大脑完全控制机器人的对话流程。
+
 ### 说话
 
 让机器人朗读一段文字。

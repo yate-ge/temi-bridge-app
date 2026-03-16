@@ -26,6 +26,16 @@
         <meta-data
             android:name="@string/metadata_override_nlu"
             android:value="TRUE" />
+        <meta-data
+            android:name="com.robotemi.sdk.metadata.OVERRIDE_STT"
+            android:value="TRUE" />
+        <meta-data
+            android:name="com.robotemi.sdk.metadata.OVERRIDE_CONVERSATION_LAYER"
+            android:value="TRUE" />
+
+        <meta-data
+            android:name="com.robotemi.sdk.metadata.UI_MODE"
+            android:resource="@integer/ui_mode_fullscreen" />
 
         <meta-data
             android:name="@string/metadata_permissions"

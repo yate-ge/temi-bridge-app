@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- METADATA_UI_MODE_FULLSCREEN = 1 -->
+    <integer name="ui_mode_fullscreen">1</integer>
+</resources>

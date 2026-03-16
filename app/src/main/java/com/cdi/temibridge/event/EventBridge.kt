@@ -97,12 +97,15 @@ class EventBridge(
         )
     }
 
-    // ASR events
+    // ASR events — intercept and prevent temi from processing further
     override fun onAsrResult(@NotNull text: String) {
         connectionManager.sendNotification(
             "event.speech.asrResult",
             mapOf("text" to text)
         )
+        // Finish conversation to prevent temi's system from acting on the result.
+        // The external brain will decide what to do with the recognized text.
+        robot.finishConversation()
     }
 
     // Navigation events
@@ -202,15 +205,17 @@ class EventBridge(
         )
     }
 
-    // NLP events
+    // NLP events — intercept and forward to brain
     override fun onNlpCompleted(nlpResult: com.robotemi.sdk.NlpResult) {
         connectionManager.sendNotification(
             "event.speech.nluResult",
             mapOf("action" to nlpResult.action, "params" to nlpResult.params)
         )
+        // Prevent temi from acting on the NLU result
+        robot.finishConversation()
     }
 
-    // Wakeup word events
+    // Wakeup word events — forward to brain, brain decides what to do
     override fun onWakeupWord(wakeupWord: String, direction: Int) {
         connectionManager.sendNotification(
             "event.speech.wakeupWord",
